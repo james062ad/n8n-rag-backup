@@ -1,0 +1,203 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "upload-question",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "3201a7a9-4797-46a3-9559-bc4ca3660023",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -240
+      ],
+      "webhookId": "795f26a1-1e40-4467-8028-605607abe0c8"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Look for file in both $json.body.file and $json.file\nlet file = undefined;\n\n// Try body.file\nif ($json.body && $json.body.file) {\n  file = $json.body.file;\n}\n// Try file at root level\nelse if ($json.file) {\n  file = $json.file;\n}\n\nif (!file) {\n  throw new Error(\"No 'file' property found in request!\");\n}\n\nconst text = file;\nconst chunkSize = 100; // or whatever size you want\nconst words = text.split(\" \");\nconst chunks = [];\n\nfor (let i = 0; i < words.length; i += chunkSize) {\n  const chunk = words.slice(i, i + chunkSize).join(\" \");\n  chunks.push({ json: { chunk } });\n}\n\nreturn chunks;\n"
+      },
+      "id": "d2b00d2f-2c67-4aa3-9d54-dab802408a74",
+      "name": "Chunk Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        440,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safely get the question from the webhook payload\nconst question = $json.body?.question || \"\";\nconst keywords = question.toLowerCase().split(\" \");\nconst results = [];\n\n// n8n passes each chunk as an item in input\nfor (const item of items) {\n  // The chunk text is inside item.json.chunk (based on your flow)\n  const chunk = item.json.chunk || \"\";\n  const chunkLower = chunk.toLowerCase();\n\n  // Check if any keyword is included in this chunk\n  const match = keywords.some(keyword => chunkLower.includes(keyword));\n\n  if (match) {\n    results.push({\n      json: {\n        relevant_chunk: chunk,\n        user_question: question\n      }\n    });\n  }\n}\n\n// If nothing matched, return a default response\nif (results.length === 0) {\n  return [\n    {\n      json: {\n        relevant_chunk: \"No relevant chunk found.\",\n        user_question: question\n      }\n    }\n  ];\n}\n\nreturn results;\n"
+      },
+      "id": "5c9456b1-5e65-467f-a292-e3e4ddea1883",
+      "name": "Find Relevant Chunk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        600,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "answer",
+              "value": "={{ $json.text || $json.output || \"No answer generated.\" }}\n"
+            }
+          ]
+        },
+        "options": {
+          "dotNotation": false
+        }
+      },
+      "id": "2aba64ca-2ce9-46fb-a166-3b1026169658",
+      "name": "Set Final Answer",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Using the following context:\\n{{ $json.relevant_chunk }}\\n\\nAnswer the question:\\n{{ $json.user_question }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        840,
+        -200
+      ],
+      "id": "6ea6ec63-e0f0-40a7-b5ae-26146efec32b",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "chatgpt-4o-latest",
+          "mode": "list",
+          "cachedResultName": "chatgpt-4o-latest"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        820,
+        0
+      ],
+      "id": "ee6ed8ed-aedc-4095-add1-041dff7f6646",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "RO11ail4YpFmcAy0",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// This code flattens 'body' properties onto the top-level JSON object\nconst out = {};\nif ($json.body) {\n  Object.assign(out, $json.body);\n}\n// Optionally, preserve top-level keys as well\nfor (const k of Object.keys($json)) {\n  if (k !== \"body\") out[k] = $json[k];\n}\nreturn [{ json: out }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        -240
+      ],
+      "id": "12b8dc36-9f76-4681-828d-27e803a245d1",
+      "name": "Code"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk Text": {
+      "main": [
+        [
+          {
+            "node": "Find Relevant Chunk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Relevant Chunk": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Set Final Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Chunk Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "eefdcfd0-69bd-4fca-aab5-a3dab6853c6b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "da3b167e5a907359b8bd84141b3dd7b5c9e61e7932448197ed7525066c1047bd"
+  },
+  "id": "dMRJf2anj7SKhl9B",
+  "tags": []
+}
